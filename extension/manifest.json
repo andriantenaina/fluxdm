@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "short_name": "FluxDM",
+  "description": "__MSG_extDesc__",
+  "version": "0.1.0",
+  "default_locale": "fr",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvP51DKsyEf4upTvEximuCYY/fk5DSlEkHD4Vo9UaPKeZq1lt6wob+bscecjIyV9kSpNHIU7rzXkph6LmkM8WbwHW3iq67/z9E7oGj53d3gCXPxGaf96X7STvtf7ra4l6xg31v/6ArKKrfIsXXxl007bAtiAHopZsgNEcSSsnr7nYiNSaYQcWPmH6sTMRRuGc57Bb4YwFlFwqButG5wHVZracFwH+Fv1KOr2WY0jjEqtCyIqqrEWGgCdjvyQjcQh4Cj4W7Y1vkx2BrLpbTE3WXkUXhsoYYcMQjRqZTZtU25EDtfum8vmxh3J9Zn0btPd47PM86mgPn3Bm8kWvEewqqwIDAQAB",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
+  "action": {
+    "default_title": "FluxDM",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" }
+  },
+  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "downloads",
+    "webRequest",
+    "webNavigation",
+    "nativeMessaging",
+    "contextMenus",
+    "cookies",
+    "tabs",
+    "storage",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "minimum_chrome_version": "102"
+}

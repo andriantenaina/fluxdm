@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "hosters": [
+    {
+      "name": "Voe",
+      "hosts": ["(^|\\.)voe\\.sx$", "(^|\\.)voe\\.", "voeunblock", "voe-unblock", "un-block-voe", "voeun-block", "launchreliantcleaverriver", "reputationsheriffkennethsand", "fittingcentermondaysunday", "housecardsummerbutton", "fraudclatterflyingcar", "bigclatterhomesguideservice", "uptodatefinishconferenceroom", "realfinanceblogcenter", "tinycat-voe-fashion", "20demidistance9elongations", "telyn610zoanthropy", "toxitabellaeatrebates306", "greaseball6eventual20", "745mingiestblissfully", "19turanosephantasia", "30sensualizeexpression", "321naturelikefurfuroid", "449unceremoniousnasoseptal", "cyamidpulverulence530", "boonlessbestselling244", "antecoxalbobbing1010", "matriculant401merited", "scatch176duplicities", "35volitantplimsoles", "tummulerviolableness", "metagnathtuggers", "gamoneinterrupted", "chromotypic", "crownmakermacaronicism", "diananatureforeign", "yodelswartlike", "figeterpiazine", "strawberriesporail", "valeronevijao", "timberwoodanotia", "generatesnitrosate", "apinchcaseation", "nectareousoverelate", "nonesnanking", "kathleenmemberhistory", "stevenimaginelittle", "jamiesamewalk", "bradleyviewdoctor", "sandrataxeight", "graceaddresscommunity", "shannonpersonalcost", "cindyeyefinal", "michaelapplysome", "sethniceletter", "brucevotewithin", "rebeccaneverbase", "loriwithinfamily", "roberteachfinal", "erikcoldperson", "jasminetesttry", "heatherdiscussionwhen", "robertplacespace", "alleneconomicmatter", "josephseveralconcern", "donaldlineelse", "lisatrialidea", "toddpartneranimal", "jamessoundcost", "brittneystandardwestern", "sandratableother", "robertordercharacter", "maxfinishseveral", "chuckle-tube", "kristiesoundsimply", "adrianmissionminute", "nathanfromsubject", "richardsignfish", "jennifercertaindevelopment", "jonathansociallike", "mariatheserepublican", "johnalwayssame", "kellywhatcould", "jilliandescribecompany"],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/(?:d|v)/", "with": "/e/"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "jsredirect"},
+        {"op": "regex", "pattern": "application/json\">\\s*\\[\\s*\"([^\"]+)\"\\s*\\]", "group": 1, "var": "blob", "optional": true},
+        {"op": "decode", "fn": "voe", "var": "blob", "to": "media", "optional": true},
+        {"op": "regex", "pattern": "'hls'\\s*:\\s*'([^']+)'", "group": 1, "var": "hls", "optional": true, "unless": "media"},
+        {"op": "decode", "fn": "base64", "var": "hls", "to": "media", "optional": true, "unless": "media", "when": "^[A-Za-z0-9+/=]+$"},
+        {"op": "copy", "var": "hls", "to": "media", "optional": true, "unless": "media"},
+        {"op": "regex", "pattern": "(https?://[^'\"\\s]+\\.m3u8[^'\"\\s]*)", "group": 1, "var": "media", "optional": true, "unless": "media"}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    },
+    {
+      "name": "Doodstream",
+      "hosts": ["(^|\\.)dood", "d0000d", "d000d", "ds2play", "ds2video", "doods\\.", "dooood", "do0od", "vide0\\.net", "dsvplay", "myvidplay", "playmogo", "dood-hd", "doodcdn", "d-s\\.io", "all3do", "vidply"],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/(?:d|f|v)/", "with": "/e/"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "jsredirect"},
+        {"op": "regex", "pattern": "<title>([^<]+)</title>", "group": 1, "var": "title", "optional": true},
+        {"op": "regex", "pattern": "/pass_md5/[^'\"\\s]+", "group": 0, "var": "pass"},
+        {"op": "regex", "pattern": "token=([A-Za-z0-9]+)&expiry", "group": 1, "var": "token", "optional": true},
+        {"op": "regex", "var": "token", "source": "pass", "pattern": "([A-Za-z0-9]+)$", "group": 1, "unless": "token"},
+        {"op": "fetch", "url": "{origin}{pass}", "to": "base", "referer": "{url}"},
+        {"op": "template", "value": "{base}{random10}?token={token}&expiry={now_ms}", "to": "media"}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    },
+    {
+      "name": "Uqload",
+      "hosts": ["(^|\\.)uqload\\.", "(^|\\.)uqloads\\."],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/(?:embed-)?([a-z0-9]{8,})(?:\\.html)?$", "with": "/embed-$1.html"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "regex", "pattern": "sources:\\s*\\[\\s*\"([^\"]+)\"", "group": 1, "var": "media", "optional": true},
+        {"op": "regex", "pattern": "(https?://[^'\"\\s]+\\.(?:mp4|m3u8)[^'\"\\s]*)", "group": 1, "var": "media", "unless": "media"},
+        {"op": "regex", "pattern": "<h1[^>]*>([^<]+)</h1>", "group": 1, "var": "title", "optional": true}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    },
+    {
+      "name": "Vidmoly",
+      "hosts": ["(^|\\.)vidmoly\\."],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/(?:w/|embed-)?([a-z0-9]{8,})(?:\\.html)?$", "with": "/embed-$1.html"},
+        {"op": "fetch", "url": "{url}", "referer": "{origin}/"},
+        {"op": "unpack"},
+        {"op": "regex", "pattern": "file\\s*:\\s*\"([^\"]+\\.m3u8[^\"]*)\"", "group": 1, "var": "media", "optional": true},
+        {"op": "regex", "pattern": "(https?://[^'\"\\s]+\\.(?:m3u8|mp4)[^'\"\\s]*)", "group": 1, "var": "media", "unless": "media"}
+      ],
+      "headers": {"Referer": "{origin}/", "Origin": "{origin}"}
+    },
+    {
+      "name": "Filemoon",
+      "hosts": ["filemoon", "moonmov", "kerapoxy", "8rm3l0i9\\.", "furher\\.", "1azayf9w\\.", "bf0skv\\.", "z1ekv717\\."],
+      "steps": [
+        {"op": "fetch", "url": "{url}"},
+        {"op": "regex", "pattern": "<iframe[^>]+src=\"([^\"]+)\"", "group": 1, "var": "frame", "optional": true},
+        {"op": "fetch", "url": "{frame}", "referer": "{url}", "optional": true, "when_var": "frame"},
+        {"op": "unpack"},
+        {"op": "regex", "pattern": "file\\s*:\\s*\"([^\"]+\\.m3u8[^\"]*)\"", "group": 1, "var": "media"}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    },
+    {
+      "name": "StreamWish / Vidhide / Filelions",
+      "hosts": ["streamwish", "strwish", "wishembed", "awish\\.", "dwish\\.", "embedwish", "flaswish", "obeywish", "jodwish", "swhoi", "vidhide", "filelions", "alions\\.", "dlions\\.", "vidhidepro", "vidhidevip", "streamhide", "guccihide", "mivalyo", "dhcplay", "hglink", "playerwish", "hlswish", "ryderjet", "smoothpre", "movearnpre"],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/(?:f|d|v|file)/", "with": "/e/"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "unpack"},
+        {"op": "regex", "pattern": "\"hls[24]\"\\s*:\\s*\"([^\"]+)\"", "group": 1, "var": "media", "optional": true},
+        {"op": "regex", "pattern": "file\\s*:\\s*\"([^\"]+\\.m3u8[^\"]*)\"", "group": 1, "var": "media", "unless": "media"}
+      ],
+      "headers": {"Referer": "{origin}/", "Origin": "{origin}"}
+    },
+    {
+      "name": "Mixdrop",
+      "hosts": ["mixdrop", "mixdroop", "mdbekjwqa", "mdfx9dc8n", "mdzsmutpcvykb", "m1xdrop", "mxdrop"],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/f/", "with": "/e/"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "unpack"},
+        {"op": "regex", "pattern": "MDCore\\.wurl\\s*=\\s*\"([^\"]+)\"", "group": 1, "var": "media"},
+        {"op": "decode", "fn": "https", "var": "media"}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    },
+    {
+      "name": "Streamtape",
+      "hosts": ["streamtape", "strtape", "strcloud", "streamta\\.", "stape\\.", "tapecontent", "strtpe", "streamadblocker", "shavetape", "tapeblocker", "tapewithadblock", "adblockstrtape", "antiadtape"],
+      "steps": [
+        {"op": "replace", "var": "url", "pattern": "/v/", "with": "/e/"},
+        {"op": "fetch", "url": "{url}"},
+        {"op": "regex", "pattern": "\\('robotlink'\\)\\.innerHTML\\s*=\\s*'([^']+)'\\s*\\+\\s*\\('([^']+)'\\)\\.substring\\((\\d+)\\)", "group": 0, "var": "raw"},
+        {"op": "streamtape", "var": "raw", "to": "media"}
+      ],
+      "headers": {"Referer": "{origin}/"}
+    }
+  ]
+}

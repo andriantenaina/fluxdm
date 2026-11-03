@@ -1,0 +1,15 @@
+# build outputs
+build/bin/
+out/
+dist/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/node_modules/
+*.syso
+
+# never publish the extension signing key
+extension/keys/
+
+# local
+*.log
+.DS_Store

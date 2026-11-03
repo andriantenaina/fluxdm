@@ -1,0 +1,17 @@
+{
+  "extName": { "message": "FluxDM — Browser integration" },
+  "extDesc": { "message": "Captures downloads and detects videos to download them with FluxDM (multi-connection, HLS, yt-dlp)." },
+  "downloadLink": { "message": "Download with FluxDM" },
+  "downloadMedia": { "message": "Download this media with FluxDM" },
+  "downloadImage": { "message": "Download image with FluxDM" },
+  "downloadAll": { "message": "Download all links with FluxDM" },
+  "downloadPage": { "message": "Download this page's video (yt-dlp)" },
+  "downloadVideo": { "message": "Download video" },
+  "noMedia": { "message": "No video detected on this page yet. Start playback." },
+  "connected": { "message": "Connected to FluxDM" },
+  "notConnected": { "message": "FluxDM is not running" },
+  "openApp": { "message": "Open FluxDM" },
+  "captureOn": { "message": "Capture downloads" },
+  "videos": { "message": "Detected videos" },
+  "quick": { "message": "Best quality, no dialog" }
+}
