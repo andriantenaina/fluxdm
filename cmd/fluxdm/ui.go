@@ -28,11 +28,12 @@ type UI struct {
 	mainWin *application.WebviewWindow
 	tray    *application.SystemTray
 
-	mu       sync.Mutex
-	pending  map[string]*PendingAdd
-	progress map[string]*application.WebviewWindow
-	seq      int
-	lastClip string
+	mu        sync.Mutex
+	pending   map[string]*PendingAdd
+	progress  map[string]*application.WebviewWindow
+	frameless map[string]bool // window name -> created without a native frame
+	seq       int
+	lastClip  string
 
 	stopCh     chan struct{}
 	background []func(stop <-chan struct{})
@@ -52,22 +53,133 @@ func (u *UI) shutdown() {
 	}
 }
 
+// useFrameless reports whether windows get the app's own title bar
+// (Windows only, unless the user chose the native title bar).
+func (u *UI) useFrameless() bool {
+	return framelessSupported() && !u.mgr.Settings().NativeTitleBar
+}
+
+// themeBackground is the window colour shown before the page paints, picked
+// from the app theme setting or the system theme (no white/dark flash).
+func (u *UI) themeBackground() application.RGBA {
+	dark := systemDark()
+	switch u.mgr.Settings().Theme {
+	case "light":
+		dark = false
+	case "dark":
+		dark = true
+	}
+	if dark {
+		return application.NewRGB(32, 32, 32)
+	}
+	return application.NewRGB(243, 243, 243)
+}
+
+// styled applies the modern look: Mica (main) / Acrylic (dialogs) on Windows 11,
+// translucent vibrancy + unified title bar on macOS; opaque elsewhere. On
+// Windows the window is frameless (custom title bar in the page, resize
+// borders, shadow and rounded corners kept) unless the native title bar is chosen.
+func (u *UI) styled(o application.WebviewWindowOptions, main bool) application.WebviewWindowOptions {
+	o.BackgroundColour = u.themeBackground()
+	frameless := u.useFrameless()
+	if frameless {
+		o.Frameless = true
+	}
+	u.mu.Lock()
+	if u.frameless == nil {
+		u.frameless = map[string]bool{}
+	}
+	u.frameless[o.Name] = frameless
+	u.mu.Unlock()
+	if !glassSupported() {
+		return o
+	}
+	o.BackgroundType = application.BackgroundTypeTranslucent
+	o.BackgroundColour = application.NewRGBA(0, 0, 0, 0)
+	o.Windows.BackdropType = application.Acrylic
+	if main {
+		o.Windows.BackdropType = application.Mica
+	}
+	o.Mac.Backdrop = application.MacBackdropTranslucent
+	if main {
+		o.Mac.TitleBar = application.MacTitleBarHiddenInsetUnified
+		o.Mac.InvisibleTitleBarHeight = 46
+	}
+	return o
+}
+
+// UIInfo tells the frontend how the window is rendered.
+type UIInfo struct {
+	Glass     bool   `json:"glass"`
+	Platform  string `json:"platform"`
+	MacInset  bool   `json:"macInset"`  // traffic lights drawn over the content (main window)
+	Frameless bool   `json:"frameless"` // no native frame: the page draws the title bar
+	Maximised bool   `json:"maximised"`
+}
+
+// trackWindow forwards maximise changes of a window to the frontend
+// (event "fdm:window" {win, maximised}); win is the frontend's window name.
+func (u *UI) trackWindow(w *application.WebviewWindow, win string) {
+	notify := func(*application.WindowEvent) {
+		u.app.Event.Emit("fdm:window", map[string]any{"win": win, "maximised": w.IsMaximised()})
+	}
+	w.OnWindowEvent(events.Common.WindowMaximise, notify)
+	w.OnWindowEvent(events.Common.WindowUnMaximise, notify)
+	w.OnWindowEvent(events.Common.WindowRestore, notify)
+}
+
+// windowFor finds the native window behind a frontend window name: "main",
+// "progress:<id>", or a dialog ("add", "video", "batch", "done") for which the
+// calling (or focused) window is used.
+func (u *UI) windowFor(caller application.Window, win string) application.Window {
+	if win == "main" {
+		if u.mainWin != nil {
+			return u.mainWin
+		}
+		return caller
+	}
+	if id, ok := strings.CutPrefix(win, "progress:"); ok {
+		u.mu.Lock()
+		w := u.progress[id]
+		u.mu.Unlock()
+		if w != nil {
+			return w
+		}
+	}
+	if caller != nil {
+		return caller
+	}
+	if u.app != nil {
+		return u.app.Window.Current()
+	}
+	return nil
+}
+
+func (u *UI) isFrameless(w application.Window) bool {
+	if w == nil {
+		return false
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.frameless[w.Name()]
+}
+
 func (u *UI) createMainWindow() {
 	u.pending = map[string]*PendingAdd{}
 	u.progress = map[string]*application.WebviewWindow{}
 	s := u.mgr.Settings()
-	u.mainWin = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "main",
-		Title:            "FluxDM",
-		Width:            1180,
-		Height:           700,
-		MinWidth:         760,
-		MinHeight:        420,
-		URL:              "/#/main",
-		Hidden:           s.StartMinimized || hasArg("--background"),
-		EnableFileDrop:   true,
-		BackgroundColour: application.NewRGB(30, 32, 38),
-	})
+	u.mainWin = u.app.Window.NewWithOptions(u.styled(application.WebviewWindowOptions{
+		Name:           "main",
+		Title:          "FluxDM",
+		Width:          1240,
+		Height:         740,
+		MinWidth:       820,
+		MinHeight:      480,
+		URL:            "/#/main",
+		Hidden:         s.StartMinimized || hasArg("--background"),
+		EnableFileDrop: true,
+	}, true))
+	u.trackWindow(u.mainWin, "main")
 	u.mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if u.mgr.Settings().CloseToTray {
 			u.mainWin.Hide()
@@ -136,17 +248,17 @@ func (u *UI) OpenAdd(req core.AddRequest, batch []core.AddRequest, video bool) {
 	} else if video {
 		route, w, h = "video", 640, 520
 	}
-	win := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "dlg-" + tok,
-		Title:            "FluxDM",
-		Width:            w,
-		Height:           h,
-		MinWidth:         480,
-		MinHeight:        320,
-		URL:              "/#/" + route + "/" + tok,
-		AlwaysOnTop:      true,
-		BackgroundColour: application.NewRGB(30, 32, 38),
-	})
+	win := u.app.Window.NewWithOptions(u.styled(application.WebviewWindowOptions{
+		Name:        "dlg-" + tok,
+		Title:       "FluxDM",
+		Width:       w,
+		Height:      h,
+		MinWidth:    480,
+		MinHeight:   320,
+		URL:         "/#/" + route + "/" + tok,
+		AlwaysOnTop: true,
+	}, false))
+	u.trackWindow(win, route)
 	win.Show()
 	win.Focus()
 }
@@ -179,16 +291,16 @@ func (u *UI) OpenProgress(id string) {
 		return
 	}
 	u.mu.Unlock()
-	win := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "prog-" + id,
-		Title:            "FluxDM — progression",
-		Width:            560,
-		Height:           420,
-		MinWidth:         460,
-		MinHeight:        340,
-		URL:              "/#/progress/" + id,
-		BackgroundColour: application.NewRGB(30, 32, 38),
-	})
+	win := u.app.Window.NewWithOptions(u.styled(application.WebviewWindowOptions{
+		Name:      "prog-" + id,
+		Title:     "FluxDM — progression",
+		Width:     580,
+		Height:    460,
+		MinWidth:  380, // mini mode is 400x100
+		MinHeight: 90,
+		URL:       "/#/progress/" + id,
+	}, false))
+	u.trackWindow(win, "progress:"+id)
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		u.mu.Lock()
 		delete(u.progress, id)
@@ -211,16 +323,16 @@ func (u *UI) closeProgress(id string) {
 }
 
 func (u *UI) openDone(id string) {
-	win := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "done-" + id,
-		Title:            "FluxDM — téléchargement terminé",
-		Width:            520,
-		Height:           260,
-		DisableResize:    true,
-		AlwaysOnTop:      true,
-		URL:              "/#/done/" + id,
-		BackgroundColour: application.NewRGB(30, 32, 38),
-	})
+	win := u.app.Window.NewWithOptions(u.styled(application.WebviewWindowOptions{
+		Name:          "done-" + id,
+		Title:         "FluxDM — téléchargement terminé",
+		Width:         520,
+		Height:        260,
+		DisableResize: true,
+		AlwaysOnTop:   true,
+		URL:           "/#/done/" + id,
+	}, false))
+	u.trackWindow(win, "done")
 	win.Show()
 }
 
@@ -237,9 +349,12 @@ func (u *UI) startEventForwarding() {
 			pmu.Unlock()
 			return
 		case "completed":
-			u.closeProgress(ev.Item.ID)
+			// an open progress window turns into the "done" view by itself
+			u.mu.Lock()
+			_, hasProgress := u.progress[ev.Item.ID]
+			u.mu.Unlock()
 			s := u.mgr.Settings()
-			if s.ShowDoneDialog && ev.Item.Queue == core.MainQueue {
+			if !hasProgress && s.ShowDoneDialog && ev.Item.Queue == core.MainQueue {
 				u.openDone(ev.Item.ID)
 			}
 		case "removed":
@@ -269,12 +384,29 @@ func (u *UI) startEventForwarding() {
 }
 
 func (u *UI) updateTrayTooltip(batch []*core.Progress) {
-	var speed float64
-	for _, p := range batch {
-		speed += p.Speed
+	if u.tray == nil {
+		return
 	}
-	if u.tray != nil {
-		u.tray.SetTooltip(fmt.Sprintf("FluxDM — %d actif(s) — %s/s", u.mgr.ActiveCount(), humanSize(int64(speed))))
+	t := u.mgr.Totals()
+	tip := fmt.Sprintf("FluxDM — %d actif(s) — %s/s", t.Active, humanSize(int64(t.Speed)))
+	if t.ETA > 0 {
+		tip += " — " + humanDuration(t.ETA) + " restantes"
+	}
+	u.tray.SetTooltip(tip)
+}
+
+// humanDuration formats seconds as "8 s", "2 min 14 s" or "1 h 05 min".
+func humanDuration(sec float64) string {
+	s := int64(sec + 0.5)
+	switch {
+	case s < 60:
+		return fmt.Sprintf("%d s", s)
+	case s < 3600:
+		return fmt.Sprintf("%d min %02d s", s/60, s%60)
+	case s < 100*3600:
+		return fmt.Sprintf("%d h %02d min", s/3600, (s%3600)/60)
+	default:
+		return fmt.Sprintf("%d j %02d h", s/86400, (s%86400)/3600)
 	}
 }
 

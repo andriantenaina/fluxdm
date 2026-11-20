@@ -22,7 +22,7 @@ import (
 )
 
 // Version is set at build time with -ldflags "-X main.Version=x.y.z".
-var Version = "0.1.0"
+var Version = "0.2.0"
 
 const appID = "com.fluxdm.app"
 

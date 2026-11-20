@@ -47,7 +47,7 @@ func TestHTTPDownloadAndCategory(t *testing.T) {
 	data := make([]byte, 2<<20)
 	rand.Read(data)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "x.zip", time.Now(), bytes.NewReader(data))
+		http.ServeContent(w, r, "x.zip", time.Unix(1700000000, 0), bytes.NewReader(data))
 	}))
 	defer srv.Close()
 	m := newMgr(t)

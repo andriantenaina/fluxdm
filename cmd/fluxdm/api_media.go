@@ -20,6 +20,26 @@ func (a *API) AnalyzeVideo(kind, rawURL string, headers map[string]string, playl
 	return a.ui.svc.media.Analyze(ctx, kind, rawURL, headers, playlist)
 }
 
+// VideoDetails is the analysis plus the user-facing inspection (names, sizes, qualities).
+type VideoDetails struct {
+	Info       *media.VideoInfo  `json:"info"`
+	Inspection *media.Inspection `json:"inspection"`
+}
+
+// AnalyzeDetails analyzes a video and computes quality cards with the final names.
+func (a *API) AnalyzeDetails(kind, rawURL string, headers map[string]string, title string, playlist bool) (*VideoDetails, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	info, err := a.ui.svc.media.Analyze(ctx, kind, rawURL, headers, playlist)
+	if err != nil {
+		return nil, err
+	}
+	if kind == "" {
+		kind = a.mgr.DetectKind(rawURL)
+	}
+	return &VideoDetails{Info: info, Inspection: a.ui.svc.media.FromInfo(info, title, kind)}, nil
+}
+
 // DetectKind returns how a URL would be downloaded.
 func (a *API) DetectKind(rawURL string) string { return a.mgr.DetectKind(rawURL) }
 

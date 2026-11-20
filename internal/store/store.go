@@ -56,6 +56,18 @@ type Item struct {
 	State       json.RawMessage   `json:"-"` // engine-specific resume state
 	CreatedAt   time.Time         `json:"createdAt"`
 	CompletedAt *time.Time        `json:"completedAt,omitempty"`
+	Priority    int               `json:"priority,omitempty"` // -1 low, 0 normal, 1 high
+	Order       float64           `json:"order,omitempty"`    // manual position in its queue (0 = by creation date)
+	Elapsed     float64           `json:"elapsed,omitempty"`  // cumulative active download time (s), pauses excluded
+}
+
+// SortKey returns the manual position used to order an item in its queue:
+// Order when set, otherwise the creation date in Unix milliseconds.
+func (it *Item) SortKey() float64 {
+	if it.Order > 0 {
+		return it.Order
+	}
+	return float64(it.CreatedAt.UnixMilli())
 }
 
 // Store wraps the SQLite database.

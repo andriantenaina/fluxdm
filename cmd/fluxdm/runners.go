@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"time"
 
+	"fluxdm/frontend"
 	"fluxdm/internal/core"
 	"fluxdm/internal/engine"
 	"fluxdm/internal/extractors"
 	"fluxdm/internal/ftpdl"
 	"fluxdm/internal/grabber"
 	"fluxdm/internal/media"
+	"fluxdm/internal/remote"
 	"fluxdm/internal/scheduler"
 	"fluxdm/internal/sidecars"
 	"fluxdm/internal/store"
@@ -27,6 +29,7 @@ type services struct {
 	sched   *scheduler.Scheduler
 	grab    *grabber.Grabber
 	torrent *torrent.Service
+	remote  *remote.Server
 }
 
 // registerRunners wires every download kind and background service.
@@ -73,7 +76,23 @@ func registerRunners(m *core.Manager, ui *UI) {
 
 	ytdlpHostsFn = func() []string { return media.YtdlpHosts }
 
-	ui.svc = &services{tools: tools, media: rt, hosters: hosters, sched: sched, grab: grab, torrent: ts}
+	rem := remote.New(m, rt, frontend.Dist(), appIcon, ui.version)
+	m.Subscribe(func(ev core.Event) {
+		if ev.Type == "settings" {
+			if err := rem.Apply(); err != nil {
+				log.Printf("remote: %v", err)
+			}
+		}
+	})
+	ui.AddBackground(func(stop <-chan struct{}) {
+		if err := rem.Apply(); err != nil {
+			log.Printf("remote: %v", err)
+		}
+		<-stop
+		rem.Stop()
+	})
+
+	ui.svc = &services{tools: tools, media: rt, hosters: hosters, sched: sched, grab: grab, torrent: ts, remote: rem}
 
 	ui.AddBackground(sched.Run)
 	ui.AddBackground(grab.Periodic)

@@ -98,26 +98,123 @@ type VideoReq struct {
 	UserAgent string            `json:"userAgent,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
 	Variants  []MediaVariant    `json:"variants,omitempty"`
-	Quick     bool              `json:"quick,omitempty"` // download best quality without dialog
+	Quick     bool              `json:"quick,omitempty"`    // download without dialog
+	FileName  string            `json:"fileName,omitempty"` // final name shown in the extension
+	Quality   string            `json:"quality,omitempty"`  // Quality.ID chosen in the extension
+	Height    int               `json:"height,omitempty"`   // chosen height (0 = best)
+	AudioOnly bool              `json:"audioOnly,omitempty"`
+}
+
+// InspectReq asks the app what a detected media really is (title, qualities, size, format).
+type InspectReq struct {
+	Kind      string            `json:"kind"` // hls | dash | direct | page
+	URL       string            `json:"url"`
+	PageURL   string            `json:"pageUrl,omitempty"`
+	Title     string            `json:"title,omitempty"`
+	FileName  string            `json:"fileName,omitempty"` // from Content-Disposition (direct files)
+	Mime      string            `json:"mime,omitempty"`
+	Size      int64             `json:"size,omitempty"`
+	Referer   string            `json:"referer,omitempty"`
+	Origin    string            `json:"origin,omitempty"`
+	Cookies   string            `json:"cookies,omitempty"`
+	UserAgent string            `json:"userAgent,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+}
+
+// Quality is one selectable quality of a media.
+type Quality struct {
+	ID           string `json:"id"`    // variant URL / rep ID / "best" / "audio"
+	Label        string `json:"label"` // "1080p", "Audio", "Original"
+	Height       int    `json:"height,omitempty"`
+	Bandwidth    int64  `json:"bandwidth,omitempty"`
+	SizeEstimate int64  `json:"sizeEstimate,omitempty"` // bytes, 0 = unknown
+	Ext          string `json:"ext"`                    // output extension without dot
+}
+
+// InspectResp describes the media for display in the extension.
+type InspectResp struct {
+	Title          string    `json:"title"`
+	Duration       float64   `json:"duration"`
+	Qualities      []Quality `json:"qualities"`
+	DefaultQuality string    `json:"defaultQuality"`
+	OutputExt      string    `json:"outputExt"`
+	FileName       string    `json:"fileName"` // suggested final name for the default quality
+	Live           bool      `json:"live"`
+	Thumbnail      string    `json:"thumbnail,omitempty"`
+	Error          string    `json:"error,omitempty"`
 }
 
 // ExtSettings are the settings the extension needs.
 type ExtSettings struct {
 	Version        string   `json:"version"`
 	CaptureExts    []string `json:"captureExts"`
-	CaptureMinSize int64    `json:"captureMinSize"`
+	CaptureMinSize int64    `json:"captureMinSize"` // bytes
 	SkipSites      []string `json:"skipSites"`
 	VideoButton    bool     `json:"videoButton"`
+	VideoSkipSites []string `json:"videoSkipSites"` // hosts where the video button is hidden
+	CaptureEnabled bool     `json:"captureEnabled"` // app-side capture switch
 	Enabled        bool     `json:"enabled"`
 	YtdlpSites     []string `json:"ytdlpSites"` // hosts handled by yt-dlp at page level
 }
 
+// ExtSettingsPatch is a partial update sent by the extension's options page
+// (absent fields are left unchanged).
+type ExtSettingsPatch struct {
+	CaptureExts    *[]string `json:"captureExts,omitempty"`
+	CaptureMinSize *int64    `json:"captureMinSize,omitempty"` // bytes
+	SkipSites      *[]string `json:"skipSites,omitempty"`
+	VideoButton    *bool     `json:"videoButton,omitempty"`
+	VideoSkipSites *[]string `json:"videoSkipSites,omitempty"`
+	CaptureEnabled *bool     `json:"captureEnabled,omitempty"`
+}
+
+// ActiveItem is one download shown in the extension (popup, side panel).
+type ActiveItem struct {
+	ID            string  `json:"id"`
+	FileName      string  `json:"fileName"`
+	Title         string  `json:"title,omitempty"`
+	Status        string  `json:"status"`
+	Size          int64   `json:"size"`
+	Downloaded    int64   `json:"downloaded"`
+	Speed         float64 `json:"speed"`
+	ETA           float64 `json:"eta"` // seconds; -1 unknown, -2 calculating
+	ETAConfidence float64 `json:"etaConfidence"`
+	Kind          string  `json:"kind"`
+	CompletedAt   string  `json:"completedAt,omitempty"` // RFC 3339
+}
+
+// ActiveResp is the answer of GET /v1/active.
+type ActiveResp struct {
+	Items  []ActiveItem `json:"items"`
+	Speed  float64      `json:"speed"`
+	Active int          `json:"active"`
+}
+
+// ShowReq brings the app to the front (optionally on an item's progress window).
+type ShowReq struct {
+	ID string `json:"id,omitempty"`
+}
+
+// ControlReq pauses, resumes or cancels an item.
+type ControlReq struct {
+	ID     string `json:"id"`
+	Action string `json:"action"` // pause | resume | cancel
+}
+
 // Handler implements the app side.
 type Handler interface {
-	Download(DownloadReq) error
-	Batch(BatchReq) error
-	Video(VideoReq) error
+	// Download adds a captured file; returns the created item id, or "" when
+	// the add dialog was opened instead.
+	Download(DownloadReq) (string, error)
+	// Batch returns the created ids (none when the batch dialog was opened).
+	Batch(BatchReq) ([]string, error)
+	Video(VideoReq) (string, error)
+	Inspect(InspectReq) InspectResp
 	ExtSettings() ExtSettings
+	SaveExtSettings(ExtSettingsPatch) (ExtSettings, error)
+	Active() ActiveResp
+	Show(id string) error
+	Control(id, action string) error
 }
 
 // Server is the running bridge.
@@ -164,21 +261,89 @@ func Start(dataDir, version string, h Handler) (*Server, error) {
 		if !decode(w, r, &req) {
 			return
 		}
-		reply(w, h.Download(req))
+		id, err := h.Download(req)
+		replyWith(w, err, idField(id))
 	}))
 	mux.HandleFunc("/v1/batch", s.auth(func(w http.ResponseWriter, r *http.Request) {
 		var req BatchReq
 		if !decode(w, r, &req) {
 			return
 		}
-		reply(w, h.Batch(req))
+		ids, err := h.Batch(req)
+		extra := map[string]any{}
+		if len(ids) > 0 {
+			extra["ids"] = ids
+		}
+		replyWith(w, err, extra)
 	}))
 	mux.HandleFunc("/v1/video", s.auth(func(w http.ResponseWriter, r *http.Request) {
 		var req VideoReq
 		if !decode(w, r, &req) {
 			return
 		}
-		reply(w, h.Video(req))
+		id, err := h.Video(req)
+		replyWith(w, err, idField(id))
+	}))
+	mux.HandleFunc("/v1/active", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		resp := h.Active()
+		if resp.Items == nil {
+			resp.Items = []ActiveItem{}
+		}
+		writeJSON(w, resp)
+	}))
+	mux.HandleFunc("/v1/settings", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeJSON(w, h.ExtSettings())
+			return
+		}
+		var req ExtSettingsPatch
+		if !decode(w, r, &req) {
+			return
+		}
+		es, err := h.SaveExtSettings(req)
+		if err != nil {
+			reply(w, err)
+			return
+		}
+		writeJSON(w, es)
+	}))
+	mux.HandleFunc("/v1/show", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		var req ShowReq
+		if r.Method == http.MethodPost && r.ContentLength != 0 {
+			if !decode(w, r, &req) {
+				return
+			}
+		} else if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+		reply(w, h.Show(req.ID))
+	}))
+	mux.HandleFunc("/v1/control", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		var req ControlReq
+		if !decode(w, r, &req) {
+			return
+		}
+		switch req.Action {
+		case "pause", "resume", "cancel":
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"ok": false, "error": "action inconnue : " + req.Action})
+			return
+		}
+		if req.ID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"ok": false, "error": "id manquant"})
+			return
+		}
+		reply(w, h.Control(req.ID, req.Action))
+	}))
+	mux.HandleFunc("/v1/inspect", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		var req InspectReq
+		if !decode(w, r, &req) {
+			return
+		}
+		writeJSON(w, h.Inspect(req))
 	}))
 	s.srv = &http.Server{Handler: cors(mux), ReadHeaderTimeout: 10 * time.Second}
 	go s.srv.Serve(ln)
@@ -245,13 +410,27 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func reply(w http.ResponseWriter, err error) {
+func reply(w http.ResponseWriter, err error) { replyWith(w, err, nil) }
+
+// replyWith answers {ok:true, ...extra} or {ok:false, error}.
+func replyWith(w http.ResponseWriter, err error, extra map[string]any) {
 	if err != nil {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	for k, v := range extra {
+		out[k] = v
+	}
+	writeJSON(w, out)
+}
+
+func idField(id string) map[string]any {
+	if id == "" {
+		return nil
+	}
+	return map[string]any{"id": id}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

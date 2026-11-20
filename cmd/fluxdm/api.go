@@ -28,6 +28,67 @@ type API struct {
 // Version returns the application version.
 func (a *API) Version() string { return a.ui.version }
 
+// UIInfo returns rendering hints (glass backdrop, platform, macOS inset title
+// bar, frameless window, maximised state). window is the frontend's window
+// name ("main", "progress:<id>", "add", "video", "batch", "done").
+func (a *API) UIInfo(ctx context.Context, window string) UIInfo {
+	g := glassSupported()
+	info := UIInfo{Glass: g, Platform: runtime.GOOS, MacInset: g && runtime.GOOS == "darwin" && window == "main"}
+	if w := a.ui.windowFor(callerWindow(ctx), window); w != nil {
+		info.Frameless = a.ui.isFrameless(w)
+		info.Maximised = w.IsMaximised()
+	} else {
+		info.Frameless = a.ui.useFrameless()
+	}
+	return info
+}
+
+// callerWindow returns the window that made the binding call (nil if unknown).
+func callerWindow(ctx context.Context) application.Window {
+	if ctx == nil {
+		return nil
+	}
+	w, _ := ctx.Value(application.WindowKey).(application.Window)
+	return w
+}
+
+// WindowAction runs a title bar action for a frameless window: minimise,
+// toggleMaximise, close (the main window follows the close-to-tray setting)
+// or startDrag (not available from Go: returns false, the page uses
+// --wails-draggable instead).
+func (a *API) WindowAction(ctx context.Context, win, action string) (bool, error) {
+	w := a.ui.windowFor(callerWindow(ctx), win)
+	if w == nil {
+		return false, fmt.Errorf("fenêtre introuvable : %s", win)
+	}
+	switch action {
+	case "minimise", "minimize":
+		w.Minimise()
+	case "toggleMaximise", "toggleMaximize", "maximise", "maximize":
+		w.ToggleMaximise()
+	case "close":
+		w.Close() // the main window's closing hook keeps the app in the tray
+	case "startDrag":
+		return false, nil
+	default:
+		return false, fmt.Errorf("action inconnue : %s", action)
+	}
+	return true, nil
+}
+
+// SetPriority sets the priority of downloads (-1 low, 0 normal, 1 high).
+func (a *API) SetPriority(ids []string, p int) { a.mgr.SetPriority(ids, p) }
+
+// Reorder moves a download just before another one of the same queue ("" = at the end).
+func (a *API) Reorder(id, beforeID string) error { return a.mgr.Reorder(id, beforeID) }
+
+// Cancel stops and removes downloads and deletes their partial files
+// (completed files are kept).
+func (a *API) Cancel(ids []string) error { return a.mgr.Cancel(ids) }
+
+// Totals returns the global speed, counts and queue ETA.
+func (a *API) Totals() core.Totals { return a.mgr.Totals() }
+
 // Platform returns "windows" or "darwin".
 func (a *API) Platform() string { return runtime.GOOS }
 
@@ -43,6 +104,9 @@ func (a *API) Settings() core.Settings { return a.mgr.Settings() }
 // SaveSettings stores the user settings (and applies "launch at startup").
 func (a *API) SaveSettings(s core.Settings) error {
 	old := a.mgr.Settings()
+	// paired devices / learned values are managed by the app, never by the form
+	s.Remote = old.Remote // changed only through RemoteEnable / pairing
+	s.HostConns = old.HostConns
 	if err := a.mgr.SetSettings(s); err != nil {
 		return err
 	}
@@ -85,9 +149,9 @@ func (a *API) Probe(rawURL string, headers map[string]string) (*ProbeResult, err
 	s := a.mgr.Settings()
 	res := &ProbeResult{Kind: kind, Size: -1}
 	if kind != store.KindHTTP {
-		res.Category = map[string]string{store.KindTorrent: "Torrents"}[kind]
-		if res.Category == "" {
-			res.Category = "Vidéos"
+		res.Category = s.CategoryName("video")
+		if kind == store.KindTorrent {
+			res.Category = s.CategoryName("torrent")
 		}
 		res.Dir = s.DirFor(res.Category)
 		return res, nil

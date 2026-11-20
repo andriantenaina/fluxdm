@@ -44,6 +44,10 @@ type fetcher struct {
 	keys    sync.Map // uri -> []byte
 }
 
+// newFetcher uses the regular download client: HTTP/1.1 with one TCP
+// connection per parallel segment (servers and CDNs often throttle per
+// connection, which HTTP/2 multiplexing on a single connection cannot get
+// around). HTTP/2 is used only when the user enabled it in the settings.
 func newFetcher(m *core.Manager, headers map[string]string) *fetcher {
 	cfg := m.EngineConfig()
 	return &fetcher{client: m.HTTPClient(), headers: headers, ua: cfg.UserAgent, limiter: m.Limiter()}
@@ -279,18 +283,50 @@ func (j *streamJob) run(ctx context.Context) error {
 	if n <= 0 {
 		n = 8
 	}
+	worker := func() {
+		defer wg.Done()
+		for jb := range jobs {
+			if err := j.downloadSeg(ctx, jb.ti, jb.si); err != nil {
+				errOnce.Do(func() { firstErr = err; cancel() })
+				return
+			}
+		}
+	}
+	var spawnMu sync.Mutex
+	closed := false
 	for w := 0; w < n; w++ {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for jb := range jobs {
-				if err := j.downloadSeg(ctx, jb.ti, jb.si); err != nil {
-					errOnce.Do(func() { firstErr = err; cancel() })
-					return
+		go worker()
+	}
+	// Adaptive concurrency: add a worker every 2 s while throughput rises (max 24).
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		var last float64
+		prev := j.bytes.Load()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				cur := j.bytes.Load()
+				rate := float64(cur - prev)
+				prev = cur
+				if last > 0 && rate > last*1.08 && n < 24 {
+					spawnMu.Lock()
+					if !closed {
+						n++
+						wg.Add(1)
+						go worker()
+					}
+					spawnMu.Unlock()
+				}
+				if rate > last {
+					last = rate
 				}
 			}
-		}()
-	}
+		}
+	}()
 	lastSave := time.Now()
 feed:
 	for ti, t := range j.tracks {
@@ -312,7 +348,10 @@ feed:
 			}
 		}
 	}
+	spawnMu.Lock()
+	closed = true
 	close(jobs)
+	spawnMu.Unlock()
 	wg.Wait()
 	j.save()
 	if firstErr != nil {

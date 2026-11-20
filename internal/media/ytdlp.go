@@ -290,6 +290,14 @@ const progressPrefix = "[FDM]"
 
 // RunYtdlp is the runner for store.KindYtdlp.
 func (rt *Runtime) RunYtdlp(ctx context.Context, m *core.Manager, it *store.Item, rep core.Reporter) error {
+	// Fast path: yt-dlp only extracts, the multi-connection engine downloads.
+	if m.Settings().AccelerateYouTube && core.OptString(it.Options, "subtitles") == "" && !core.OptBool(it.Options, "thumbnail") && !core.OptBool(it.Options, "classic") {
+		err := rt.runAccelerated(ctx, m, it, rep)
+		if !errors.Is(err, errFallback) {
+			return err
+		}
+		it.State = nil // classic yt-dlp keeps its own .part files
+	}
 	bin, args, cleanup, err := rt.ytdlpBase(ctx, it, it.Headers, it.URL)
 	if err != nil {
 		return err
@@ -334,7 +342,13 @@ func (rt *Runtime) RunYtdlp(ctx context.Context, m *core.Manager, it *store.Item
 		conc = 8
 	}
 	args = append(args, "--concurrent-fragments", strconv.Itoa(conc))
-	if lim := m.Limiter().Rate(); lim > 0 {
+	// yt-dlp gets its fair part of the global limit (not the whole of it,
+	// which other downloads also use), and the item's own limit if lower.
+	lim := m.FairLimit()
+	if own := int64(core.OptInt(it.Options, "speedLimit")); own > 0 && (lim == 0 || own < lim) {
+		lim = own
+	}
+	if lim > 0 {
 		args = append(args, "--limit-rate", strconv.FormatInt(lim, 10))
 	}
 	name := "%(title).180B [%(id)s].%(ext)s"

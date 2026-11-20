@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fluxdm/internal/engine"
@@ -28,14 +29,19 @@ const MainQueue = "main"
 
 // Progress is sent to the UI several times per second.
 type Progress struct {
-	ID         string           `json:"id"`
-	Size       int64            `json:"size"`
-	Downloaded int64            `json:"downloaded"`
-	Speed      float64          `json:"speed"`
-	ETA        float64          `json:"eta"` // seconds, -1 unknown
-	Conns      int              `json:"conns"`
-	Segments   []engine.Segment `json:"segments,omitempty"`
-	Extra      map[string]any   `json:"extra,omitempty"` // kind-specific (peers, fragments...)
+	ID            string           `json:"id"`
+	Size          int64            `json:"size"`
+	Downloaded    int64            `json:"downloaded"`
+	Speed         float64          `json:"speed"`
+	ETA           float64          `json:"eta"`           // seconds; -1 unknown size, -2 calculating
+	ETAConfidence float64          `json:"etaConfidence"` // 0..1
+	Elapsed       float64          `json:"elapsed"`       // active seconds, all sessions
+	AvgSpeed      float64          `json:"avgSpeed"`      // bytes/s over the current session
+	StartedAt     int64            `json:"startedAt"`     // unix ms of the current session start
+	Limit         int64            `json:"limit"`         // effective per-item limit (bytes/s, 0 = none)
+	Conns         int              `json:"conns"`
+	Segments      []engine.Segment `json:"segments,omitempty"`
+	Extra         map[string]any   `json:"extra,omitempty"` // kind-specific (peers, fragments...)
 }
 
 // Event is broadcast to subscribers (UI, browser bridge).
@@ -78,6 +84,7 @@ type AddRequest struct {
 	Start       bool              `json:"start"` // false = "download later"
 	Size        int64             `json:"size,omitempty"`
 	Description string            `json:"description,omitempty"`
+	Priority    int               `json:"priority,omitempty"` // -1 low, 0 normal, 1 high
 }
 
 // QueueState is the runtime state of a queue.
@@ -103,12 +110,22 @@ type Manager struct {
 	running  map[string]*running
 	queues   map[string]*QueueState
 	runners  map[string]Runner
+	subMu    sync.RWMutex
 	subs     map[int]func(Event)
 	subSeq   int
-	live     map[string]*engine.Download // running HTTP downloads (live tuning)
+	live     sync.Map // id -> Tunable: running downloads that can be tuned live
+	prog     sync.Map // id -> *Progress: latest progress of running items
+	nRunning atomic.Int32
 
 	client  *http.Client
+	client2 *http.Client // HTTP/2-enabled
 	limiter *engine.Limiter
+	gate    *engine.HostGate // connections per host across downloads
+
+	autoLimit     int     // AutoActive: current number of simultaneous downloads
+	autoLastSpeed float64 // total speed when the last slot was added
+	stop          chan struct{}
+	closeOnce     sync.Once
 
 	// Classify may override kind auto-detection (e.g. send YouTube pages to yt-dlp).
 	Classify func(rawURL string) string
@@ -130,8 +147,9 @@ func NewManager(dataDir string) (*Manager, error) {
 		queues:  map[string]*QueueState{MainQueue: {Name: MainQueue, Running: true}},
 		runners: map[string]Runner{},
 		subs:    map[int]func(Event){},
-		live:    map[string]*engine.Download{},
 		limiter: engine.NewLimiter(0),
+		gate:    engine.NewHostGate(16),
+		stop:    make(chan struct{}),
 	}
 	s := DefaultSettings()
 	if _, err := st.GetSetting("settings", &s); err != nil {
@@ -159,11 +177,14 @@ func NewManager(dataDir string) (*Manager, error) {
 		m.items[it.ID] = it
 	}
 	m.runners[store.KindHTTP] = httpRunner
+	m.autoLimit = m.autoStartLocked()
+	go m.autoActiveLoop()
 	return m, nil
 }
 
 // Close pauses everything and closes the database.
 func (m *Manager) Close() {
+	m.closeOnce.Do(func() { close(m.stop) })
 	m.PauseAll()
 	m.Store.Close()
 }
@@ -184,25 +205,27 @@ func (m *Manager) Runner(kind string) Runner {
 
 // Subscribe registers an event listener; call the returned func to unsubscribe.
 func (m *Manager) Subscribe(fn func(Event)) func() {
-	m.mu.Lock()
+	m.subMu.Lock()
 	m.subSeq++
 	id := m.subSeq
 	m.subs[id] = fn
-	m.mu.Unlock()
+	m.subMu.Unlock()
 	return func() {
-		m.mu.Lock()
+		m.subMu.Lock()
 		delete(m.subs, id)
-		m.mu.Unlock()
+		m.subMu.Unlock()
 	}
 }
 
+// emit broadcasts an event. It does not take Manager.mu, so progress events
+// never contend with list/queue operations.
 func (m *Manager) emit(ev Event) {
-	m.mu.Lock()
+	m.subMu.RLock()
 	fns := make([]func(Event), 0, len(m.subs))
 	for _, f := range m.subs {
 		fns = append(fns, f)
 	}
-	m.mu.Unlock()
+	m.subMu.RUnlock()
 	for _, f := range fns {
 		f(ev)
 	}
@@ -217,6 +240,35 @@ func (m *Manager) HTTPClient() *http.Client {
 
 // Limiter returns the global speed limiter.
 func (m *Manager) Limiter() *engine.Limiter { return m.limiter }
+
+// HostGate returns the per-host connection gate shared by all downloads.
+func (m *Manager) HostGate() *engine.HostGate { return m.gate }
+
+// FairLimit returns the part of the global speed limit one download gets when
+// it is shared between the running downloads (0 = unlimited).
+func (m *Manager) FairLimit() int64 {
+	r := m.limiter.Rate()
+	if r <= 0 {
+		return 0
+	}
+	if m.Settings().FairShare {
+		if n := int64(m.nRunning.Load()); n > 1 {
+			return r / n
+		}
+	}
+	return r
+}
+
+// PriorityWeight converts an item priority into a bandwidth weight.
+func PriorityWeight(p int) float64 {
+	switch {
+	case p > 0:
+		return 2
+	case p < 0:
+		return 0.5
+	}
+	return 1
+}
 
 // EngineConfig returns the engine configuration derived from settings.
 func (m *Manager) EngineConfig() engine.Config {
@@ -236,11 +288,35 @@ func (m *Manager) engineConfigLocked() engine.Config {
 		c.UserAgent = s.UserAgent
 	}
 	c.SpeedLimiter = m.limiter
+	c.AutoConns = s.AutoConns
+	c.HostGate = m.gate
+	c.MaxConnsPerHost = s.MaxConnsPerHost
+	if s.FairShare {
+		c.FairWeight = 1
+	}
 	return c
+}
+
+// HTTP2Client returns a client allowing HTTP/2 (multiplexing helps the many
+// small requests of HLS/DASH segments).
+func (m *Manager) HTTP2Client() *http.Client {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client2 == nil {
+		cfg := m.engineConfigLocked()
+		cfg.AllowHTTP2 = true
+		if cl, err := engine.NewHTTPClient(cfg); err == nil {
+			m.client2 = cl
+		} else {
+			return m.client
+		}
+	}
+	return m.client2
 }
 
 func (m *Manager) applySettingsLocked() {
 	m.limiter.SetRate(m.settings.SpeedLimit)
+	m.gate.SetLimit(m.settings.MaxConnsPerHost)
 	cl, err := engine.NewHTTPClient(m.engineConfigLocked())
 	if err != nil {
 		cfg := m.engineConfigLocked()
@@ -248,6 +324,7 @@ func (m *Manager) applySettingsLocked() {
 		cl, _ = engine.NewHTTPClient(cfg)
 	}
 	m.client = cl
+	m.client2 = nil // rebuilt lazily with the new settings
 }
 
 // Settings returns a copy of the settings.
@@ -390,12 +467,12 @@ func (m *Manager) Add(req AddRequest) (*store.Item, error) {
 	if cat == "" {
 		switch kind {
 		case store.KindHLS, store.KindDASH, store.KindYtdlp:
-			cat = "Vidéos"
+			cat = s.CategoryName("video")
 			if v, _ := req.Options["audioOnly"].(bool); v {
-				cat = "Musique"
+				cat = s.CategoryName("audio")
 			}
 		case store.KindTorrent:
-			cat = "Torrents"
+			cat = s.CategoryName("torrent")
 		default:
 			cat = s.CategoryFor(name)
 		}
@@ -424,6 +501,7 @@ func (m *Manager) Add(req AddRequest) (*store.Item, error) {
 		Headers:     req.Headers,
 		Options:     req.Options,
 		CreatedAt:   time.Now(),
+		Priority:    max(-1, min(1, req.Priority)),
 	}
 	if req.Start {
 		it.Status = store.StatusQueued
@@ -477,6 +555,7 @@ func (m *Manager) Start(id string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &running{cancel: cancel, done: make(chan struct{})}
 	m.running[id] = r
+	m.nRunning.Add(1)
 	it.Status = store.StatusDownloading
 	it.Error = ""
 	m.mu.Unlock()
@@ -487,11 +566,14 @@ func (m *Manager) Start(id string) error {
 }
 
 func (m *Manager) run(ctx context.Context, it *store.Item, runner Runner, r *running) {
-	rep := &reporter{m: m, it: it}
+	rep := newReporter(m, it)
 	err := runner(ctx, m, it, rep)
+	m.prog.Delete(it.ID)
 
 	m.mu.Lock()
 	delete(m.running, it.ID)
+	m.nRunning.Add(-1)
+	it.Elapsed = rep.elapsed(time.Now())
 	_, stillExists := m.items[it.ID]
 	switch {
 	case !stillExists:
@@ -728,11 +810,10 @@ func (m *Manager) SetItemOptions(id string, opts map[string]any) error {
 	for k, v := range opts {
 		it.Options[k] = v
 	}
-	d := m.live[id]
 	m.mu.Unlock()
-	if d != nil { // apply immediately to a running HTTP download
-		if _, ok := opts["speedLimit"]; ok && d.Limiter != nil {
-			d.Limiter.SetRate(int64(optInt(opts, "speedLimit")))
+	if d := m.liveDownload(id); d != nil { // apply immediately to a running HTTP download
+		if _, ok := opts["speedLimit"]; ok {
+			d.SetSpeedLimit(int64(optInt(opts, "speedLimit")))
 		}
 		if n := optInt(opts, "connections"); n > 0 {
 			d.SetMaxConns(n)
@@ -878,27 +959,24 @@ func (m *Manager) ActiveCount() int {
 	return len(m.running)
 }
 
-// pump starts queued items while queue limits allow.
+// pump starts queued items while the limits allow: per-queue MaxActive, the
+// global cap, the per-host cap and the AutoActive level. Items run by
+// priority (high first), then manual order, then creation date.
 func (m *Manager) pump() {
 	m.mu.Lock()
+	s := m.settings
 	activePerQueue := map[string]int{}
+	activePerHost := map[string]int{}
 	for id := range m.running {
 		if it := m.items[id]; it != nil {
 			activePerQueue[it.Queue]++
+			activePerHost[hostOf(it.URL)]++
 		}
 	}
+	total := len(m.running)
+	autoCap := m.autoCapLocked()
 	var toStart []string
-	ordered := make([]*store.Item, 0, len(m.items))
-	for _, it := range m.items {
-		if it.Status == store.StatusQueued {
-			ordered = append(ordered, it)
-		}
-	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].CreatedAt.Before(ordered[j].CreatedAt) })
-	for _, it := range ordered {
-		if _, r := m.running[it.ID]; r {
-			continue
-		}
+	for _, it := range m.queuedLocked() {
 		q := m.queues[it.Queue]
 		if q == nil {
 			q = m.queues[MainQueue]
@@ -906,20 +984,60 @@ func (m *Manager) pump() {
 		if !q.Running {
 			continue
 		}
+		if s.MaxActiveGlobal > 0 && total >= s.MaxActiveGlobal {
+			break
+		}
+		if s.AutoActive && total >= autoCap {
+			break
+		}
 		limit := q.MaxActive
 		if limit <= 0 {
-			limit = m.settings.MaxActive
+			limit = s.MaxActive
 		}
 		if activePerQueue[q.Name] >= limit {
 			continue
 		}
+		host := hostOf(it.URL)
+		if s.MaxActivePerHost > 0 && host != "" && activePerHost[host] >= s.MaxActivePerHost {
+			continue
+		}
 		activePerQueue[q.Name]++
+		activePerHost[host]++
+		total++
 		toStart = append(toStart, it.ID)
 	}
 	m.mu.Unlock()
 	for _, id := range toStart {
 		_ = m.Start(id)
 	}
+}
+
+// queuedLocked returns the queued items that are not running, in start order.
+func (m *Manager) queuedLocked() []*store.Item {
+	out := make([]*store.Item, 0, len(m.items))
+	for _, it := range m.items {
+		if it.Status == store.StatusQueued {
+			if _, r := m.running[it.ID]; !r {
+				out = append(out, it)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return runsBefore(out[i], out[j]) })
+	return out
+}
+
+// runsBefore orders items: priority desc, manual order asc, creation date asc.
+func runsBefore(a, b *store.Item) bool {
+	if a.Priority != b.Priority {
+		return a.Priority > b.Priority
+	}
+	if ka, kb := a.SortKey(), b.SortKey(); ka != kb {
+		return ka < kb
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return a.ID < b.ID
 }
 
 // Resume restarts the queues after application launch.
@@ -934,11 +1052,29 @@ func cleanupTemp(dataDir, id string) {
 	_ = os.RemoveAll(filepath.Join(dataDir, "temp", id))
 }
 
-// reporter implements Reporter for one item.
+// reporter implements Reporter for one item (one run = one session).
 type reporter struct {
-	m        *Manager
-	it       *store.Item
-	lastSave time.Time
+	m  *Manager
+	it *store.Item
+
+	started     time.Time
+	baseElapsed float64
+
+	pmu      sync.Mutex
+	eta      *etaEstimator
+	lastItem time.Time
+}
+
+func newReporter(m *Manager, it *store.Item) *reporter {
+	m.mu.Lock()
+	base := it.Elapsed
+	m.mu.Unlock()
+	return &reporter{m: m, it: it, started: time.Now(), baseElapsed: base}
+}
+
+// elapsed returns the cumulative active time including this session.
+func (r *reporter) elapsed(now time.Time) float64 {
+	return r.baseElapsed + now.Sub(r.started).Seconds()
 }
 
 func (r *reporter) Info(fileName, path string, size int64) {
@@ -969,18 +1105,38 @@ func (r *reporter) Title(title string) {
 
 func (r *reporter) Progress(p Progress) {
 	p.ID = r.it.ID
-	if p.ETA == 0 {
-		p.ETA = -1
-		if p.Speed > 1 && p.Size > 0 {
-			p.ETA = float64(p.Size-p.Downloaded) / p.Speed
+	now := time.Now()
+	limit := r.m.itemLimit(r.it.ID)
+	r.pmu.Lock()
+	if r.eta == nil {
+		r.eta = newETA(now, p.Downloaded)
+	}
+	runnerETA := p.ETA
+	res := r.eta.update(now, p.Downloaded, p.Size, limit)
+	updateItem := now.Sub(r.lastItem) >= time.Second
+	if updateItem {
+		r.lastItem = now
+	}
+	r.pmu.Unlock()
+	p.ETA = res.ETA
+	if p.Size <= 0 && runnerETA > 0 {
+		p.ETA = runnerETA // size unknown to us but known to the tool (yt-dlp)
+	}
+	p.ETAConfidence = res.Confidence
+	p.AvgSpeed = res.AvgSpeed
+	p.Elapsed = r.elapsed(now)
+	p.StartedAt = r.started.UnixMilli()
+	p.Limit = limit
+	r.m.prog.Store(r.it.ID, &p)
+	if updateItem { // the list copy is refreshed once per second only
+		r.m.mu.Lock()
+		r.it.Downloaded = p.Downloaded
+		if p.Size > 0 {
+			r.it.Size = p.Size
 		}
+		r.it.Elapsed = p.Elapsed
+		r.m.mu.Unlock()
 	}
-	r.m.mu.Lock()
-	r.it.Downloaded = p.Downloaded
-	if p.Size > 0 {
-		r.it.Size = p.Size
-	}
-	r.m.mu.Unlock()
 	r.m.emit(Event{Type: "progress", ID: r.it.ID, Progress: &p})
 }
 
@@ -994,6 +1150,7 @@ func (r *reporter) SaveState(state any, downloaded int64) {
 	if downloaded > 0 {
 		r.it.Downloaded = downloaded
 	}
+	r.it.Elapsed = r.elapsed(time.Now())
 	c := *r.it
 	r.m.mu.Unlock()
 	_ = r.m.Store.SaveItem(&c)

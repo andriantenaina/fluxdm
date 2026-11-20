@@ -37,7 +37,7 @@ func baseName(it *store.Item) string {
 			return engine.SanitizeFileName(n)
 		}
 	}
-	if t := strings.TrimSpace(it.Title); t != "" {
+	if t := CleanTitle(it.Title); t != "" {
 		return engine.SanitizeFileName(t)
 	}
 	if u, err := url.Parse(it.URL); err == nil {

@@ -27,14 +27,38 @@ type Config struct {
 	AllowHTTP2   bool          // HTTP/2 multiplexes all ranges on ONE TCP connection (slower acceleration); off by default
 	InsecureTLS  bool          // accept invalid certificates
 	SpeedLimiter *Limiter      // global limiter shared by all downloads (may be nil)
+	AutoConns    bool          // add connections while throughput keeps rising (up to 32)
+	BlockSize    int64         // max bytes per range request (keep-alive reuse); 0 = whole segment
+	SpreadIPs    bool          // spread connections over all IPs of the host (CDNs)
+
+	// HostGate limits connections per host across all downloads (may be nil).
+	HostGate *HostGate
+	// MaxConnsPerHost caps the transport connections per host (0 = unlimited).
+	MaxConnsPerHost int
+	// FairWeight > 0 gives the download its own fair share of SpeedLimiter with
+	// this weight (1 normal, 2 high priority, 0.5 low); 0 = common bucket.
+	FairWeight float64
 }
+
+// maxBlockSize caps the adaptive block size (speed x 2 s).
+const maxBlockSize = 64 << 20
+
+// endgameSplit is the smallest segment half stolen near the end of a download.
+const endgameSplit = 256 << 10
+
+// sessionCache lets every transport resume TLS sessions (saves one round trip
+// per new connection to the same server).
+var sessionCache = tls.NewLRUClientSessionCache(256)
 
 // DefaultConfig returns sensible defaults (similar to IDM: 8 connections).
 func DefaultConfig() Config {
 	return Config{
 		MaxConns:   8,
 		MinSplit:   1 << 20, // 1 MiB
-		BufSize:    256 << 10,
+		BufSize:    1 << 20,
+		BlockSize:  8 << 20,
+		AutoConns:  true,
+		SpreadIPs:  true,
 		Retries:    10,
 		RetryDelay: 500 * time.Millisecond,
 		Timeout:    20 * time.Second,
@@ -79,8 +103,14 @@ func (c *Config) normalize() {
 func NewHTTPClient(c Config) (*http.Client, error) {
 	c.normalize()
 	dialer := &net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}
+	dial := (&fastDialer{d: dialer, spread: c.SpreadIPs}).DialContext
+	maxPerHost := 0
+	if c.MaxConnsPerHost > 0 {
+		// headroom for probes and small requests made outside the host gate
+		maxPerHost = c.MaxConnsPerHost + 4
+	}
 	tr := &http.Transport{
-		DialContext:           dialer.DialContext,
+		DialContext:           dial,
 		MaxIdleConns:          256,
 		MaxIdleConnsPerHost:   64,
 		IdleConnTimeout:       90 * time.Second,
@@ -89,7 +119,13 @@ func NewHTTPClient(c Config) (*http.Client, error) {
 		ExpectContinueTimeout: time.Second,
 		DisableCompression:    true, // byte ranges must address the raw entity
 		ForceAttemptHTTP2:     c.AllowHTTP2,
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: c.InsecureTLS}, //nolint:gosec // user option
+		ReadBufferSize:        64 << 10,
+		WriteBufferSize:       64 << 10,
+		MaxConnsPerHost:       maxPerHost,
+		TLSClientConfig: &tls.Config{ //nolint:gosec // InsecureSkipVerify is a user option
+			InsecureSkipVerify: c.InsecureTLS,
+			ClientSessionCache: sessionCache,
+		},
 	}
 	if !c.AllowHTTP2 {
 		tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}

@@ -34,34 +34,79 @@ func FileNameFromResponse(rawURL, contentDisposition, contentType string) string
 	if name == "" || name == "." || name == "/" {
 		name = "download"
 	}
-	if filepath.Ext(name) == "" && contentType != "" {
-		mt, _, _ := mime.ParseMediaType(contentType)
-		if ext := extForMIME(mt); ext != "" {
-			name += ext
+	return FixExtension(name, contentType)
+}
+
+// dynamicExts are server-script extensions that never describe the real file.
+var dynamicExts = map[string]bool{".php": true, ".aspx": true, ".asp": true, ".jsp": true, ".cgi": true, ".pl": true, ".do": true, ".action": true, ".html": true, ".htm": true}
+
+// FixExtension makes the extension consistent with the MIME type:
+// "download.php" + video/mp4 -> "download.mp4", "file" + application/zip -> "file.zip",
+// and removes doubled extensions ("a.mp4.mp4").
+func FixExtension(name, contentType string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	mt, _, _ := mime.ParseMediaType(contentType)
+	want := ""
+	if mt != "" && mt != "application/octet-stream" && mt != "binary/octet-stream" && !strings.HasPrefix(mt, "text/") {
+		want = extForMIME(mt)
+	}
+	switch {
+	case want != "" && (ext == "" || dynamicExts[ext]):
+		name = strings.TrimSuffix(name, filepath.Ext(name)) + want
+	case want != "" && ext != want && strings.HasPrefix(mt, "video/") && !isMediaExt(ext):
+		name += want
+	}
+	// "a.mp4.mp4" -> "a.mp4"
+	if e := filepath.Ext(name); e != "" {
+		base := strings.TrimSuffix(name, e)
+		if strings.EqualFold(filepath.Ext(base), e) {
+			name = base
 		}
 	}
 	return name
 }
 
+func isMediaExt(ext string) bool {
+	switch ext {
+	case ".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".flv", ".ts", ".3gp", ".mpg", ".mpeg", ".wmv", ".ogv":
+		return true
+	}
+	return false
+}
+
 var commonExt = map[string]string{
-	"video/mp4":                     ".mp4",
-	"video/webm":                    ".webm",
-	"video/x-matroska":              ".mkv",
-	"video/x-flv":                   ".flv",
-	"video/mp2t":                    ".ts",
-	"audio/mpeg":                    ".mp3",
-	"audio/mp4":                     ".m4a",
-	"audio/ogg":                     ".ogg",
-	"application/zip":               ".zip",
-	"application/pdf":               ".pdf",
-	"application/x-rar-compressed":  ".rar",
-	"application/x-7z-compressed":   ".7z",
-	"application/x-msdownload":      ".exe",
-	"application/x-bittorrent":      ".torrent",
-	"application/vnd.apple.mpegurl": ".m3u8",
-	"application/dash+xml":          ".mpd",
-	"image/jpeg":                    ".jpg",
-	"image/png":                     ".png",
+	"video/mp4":                    ".mp4",
+	"video/webm":                   ".webm",
+	"video/x-matroska":             ".mkv",
+	"video/x-flv":                  ".flv",
+	"video/mp2t":                   ".ts",
+	"audio/mpeg":                   ".mp3",
+	"audio/mp4":                    ".m4a",
+	"audio/ogg":                    ".ogg",
+	"application/zip":              ".zip",
+	"application/pdf":              ".pdf",
+	"application/x-rar-compressed": ".rar",
+	"application/x-7z-compressed":  ".7z",
+	"application/x-msdownload":     ".exe",
+	"application/x-bittorrent":     ".torrent",
+	"video/quicktime":              ".mov",
+	"video/x-msvideo":              ".avi",
+	"video/3gpp":                   ".3gp",
+	"audio/aac":                    ".aac",
+	"audio/x-m4a":                  ".m4a",
+	"audio/wav":                    ".wav",
+	"audio/x-wav":                  ".wav",
+	"audio/flac":                   ".flac",
+	"audio/opus":                   ".opus",
+	"audio/webm":                   ".weba",
+	"application/x-zip-compressed": ".zip",
+	"application/gzip":             ".gz",
+	"application/x-iso9660-image":  ".iso",
+	"application/vnd.android.package-archive": ".apk",
+	"application/vnd.apple.mpegurl":           ".m3u8",
+	"application/dash+xml":                    ".mpd",
+	"image/jpeg":                              ".jpg",
+	"image/png":                               ".png",
 }
 
 func extForMIME(mt string) string {
