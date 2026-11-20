@@ -67,7 +67,7 @@ func TestEndgameStraggler(t *testing.T) {
 	t.Logf("terminé en %v, requêtes dupliquées : %d", el, d.dups)
 	// Without stealing the slow request would need > 2 min; without the
 	// endgame the last <512 KiB alone would take up to 16 s.
-	if el > 3*time.Second {
+	if el > 3*time.Second*raceSlowdown {
 		t.Errorf("fin de téléchargement trop lente : %v", el)
 	}
 	if n := len(d.Snapshot().Segments); n != 1 {
