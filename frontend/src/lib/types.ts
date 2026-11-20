@@ -21,6 +21,12 @@ export interface Item {
   options?: Record<string, any>
   createdAt: string
   completedAt?: string
+  /** -1 low, 0 normal (default), 1 high */
+  priority?: number
+  /** manual position in its queue (smaller first; 0 = use createdAt) */
+  order?: number
+  /** cumulative active seconds (excluding pauses) */
+  elapsed?: number
 }
 
 export interface Segment { s: number; e: number; p: number }
@@ -30,13 +36,30 @@ export interface Progress {
   size: number
   downloaded: number
   speed: number
+  /** seconds; -1 = unknown (size unknown), -2 = calculating */
   eta: number
   conns: number
   segments?: Segment[]
   extra?: Record<string, any>
+  /** 0..1, low means the ETA is approximate */
+  etaConfidence?: number
+  /** active seconds, cumulative over sessions */
+  elapsed?: number
+  /** bytes/s averaged over the current session */
+  avgSpeed?: number
+  /** unix ms of the current session start */
+  startedAt?: number
+  /** effective per-item limit in bytes/s (0 = none) */
+  limit?: number
 }
 
-export interface Category { name: string; exts: string[]; dir: string }
+export interface Totals { speed: number; active: number; queued: number; remaining: number; eta: number }
+
+export interface UIInfo { glass: boolean; platform: string; macInset: boolean; frameless?: boolean; maximised?: boolean }
+
+export type CategoryKey = 'video' | 'audio' | 'archive' | 'doc' | 'app' | 'image' | 'torrent' | 'program' | 'other' | ''
+
+export interface Category { name: string; exts: string[]; dir: string; key?: CategoryKey }
 export interface Cred { host: string; user: string; password: string }
 
 export interface Settings {
@@ -75,7 +98,22 @@ export interface Settings {
   settingsVersion: number
   rulesUrl: string
   updateRepo: string
+  autoConns: boolean
+  accelerateYoutube: boolean
+  hostConns?: Record<string, number>
+  remote?: { enabled: boolean; port: number; devices: RemoteDevice[] }
+  maxConnsPerHost?: number
+  maxActivePerHost?: number
+  autoActive?: boolean
+  maxActiveGlobal?: number
+  fairShare?: boolean
+  nativeTitleBar?: boolean
+  extVideoSkipSites?: string[]
 }
+
+export interface RemoteDevice { id: string; name: string; createdAt: number; lastSeen: number }
+export interface RemoteAddress { label: string; url: string; qr?: string }
+export interface RemoteStatus { enabled: boolean; running: boolean; port: number; addresses: RemoteAddress[] | null; devices: RemoteDevice[] | null }
 
 export interface UpdateInfo { current: string; latest: string; newer: boolean; url: string; asset: string; notes: string }
 
@@ -93,6 +131,7 @@ export interface AddRequest {
   start: boolean
   size?: number
   description?: string
+  priority?: number
 }
 
 export interface PendingAdd {
@@ -161,6 +200,13 @@ export interface GrabberStatus {
   projectId: string; running: boolean; pages: number; queued: number
   found?: GrabberFound[]; foundCount: number; added: number; error?: string; current?: string
 }
+
+export interface Quality { id: string; label: string; height?: number; bandwidth?: number; sizeEstimate?: number; ext: string }
+export interface Inspection {
+  title: string; duration: number; qualities: Quality[]; defaultQuality: string
+  outputExt: string; fileName: string; live: boolean; thumbnail?: string
+}
+export interface VideoDetails { info: VideoInfo; inspection: Inspection }
 
 export interface TorrentInfo { name: string; infoHash: string; size: number; files?: { index: number; path: string; size: number }[] }
 

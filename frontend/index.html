@@ -2,8 +2,25 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>FluxDM</title>
+    <script>
+      // Resolve the theme before the first paint (no flash). Kept in sync by lib/theme.svelte.ts.
+      (function () {
+        var d = document.documentElement
+        try {
+          var pref = localStorage.getItem('fdm.theme') || 'system'
+          var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          d.setAttribute('data-theme', dark ? 'dark' : 'light')
+          if (localStorage.getItem('fdm.glass') === '1' && location.hash.indexOf('#/remote') !== 0) d.setAttribute('data-glass', '1')
+          var lang = localStorage.getItem('fdm.lang')
+          if (lang) d.lang = lang
+        } catch (e) {
+          d.setAttribute('data-theme', window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
