@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -117,7 +118,13 @@ func TestHostGate(t *testing.T) {
 	var active, maxActive int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&active, 1)
-		defer atomic.AddInt32(&active, -1)
+		// stop counting as soon as the client closes the connection, not when
+		// this handler next notices it
+		var once sync.Once
+		dec := func() { once.Do(func() { atomic.AddInt32(&active, -1) }) }
+		defer dec()
+		stop := context.AfterFunc(r.Context(), dec)
+		defer stop()
 		for {
 			m := atomic.LoadInt32(&maxActive)
 			if n <= m || atomic.CompareAndSwapInt32(&maxActive, m, n) {
@@ -158,6 +165,8 @@ func TestHostGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var cActive, cMax int32
+	cl.Transport = countingRT{rt: cl.Transport, active: &cActive, max: &cMax}
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
 	paths := make([]string, 2)
@@ -179,7 +188,7 @@ func TestHostGate(t *testing.T) {
 		}
 		checkFile(t, paths[i], data)
 	}
-	if m := atomic.LoadInt32(&maxActive); m > 3 {
+	if m := atomic.LoadInt32(&cMax); m > 3 {
 		t.Errorf("%d connexions simultanées vers l'hôte, limite 3", m)
 	} else {
 		t.Logf("pic de connexions : %d", m)
@@ -262,3 +271,32 @@ func TestFairLimiterWeights(t *testing.T) {
 		t.Errorf("pondération 2:1 non respectée : %.2f", ratio)
 	}
 }
+
+// countingRT measures client-side concurrency: a request counts from the
+// moment it is sent until its response body is closed, which is exactly what
+// the host gate controls (a server only notices a close later).
+type countingRT struct {
+	rt          http.RoundTripper
+	active, max *int32
+}
+
+func (c countingRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	n := atomic.AddInt32(c.active, 1)
+	for m := atomic.LoadInt32(c.max); n > m && !atomic.CompareAndSwapInt32(c.max, m, n); m = atomic.LoadInt32(c.max) {
+	}
+	resp, err := c.rt.RoundTrip(r)
+	if err != nil {
+		atomic.AddInt32(c.active, -1)
+		return nil, err
+	}
+	var once sync.Once
+	resp.Body = countingBody{resp.Body, func() { once.Do(func() { atomic.AddInt32(c.active, -1) }) }}
+	return resp, nil
+}
+
+type countingBody struct {
+	io.ReadCloser
+	done func()
+}
+
+func (b countingBody) Close() error { err := b.ReadCloser.Close(); b.done(); return err }

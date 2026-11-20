@@ -357,6 +357,30 @@ func (d *Download) Run(parent context.Context) error {
 				}
 				spawn()
 				if atomic.LoadInt32(&d.active) == 0 {
+					// No worker is alive, so no segment can legitimately be held:
+					// drop stale holders (left by a worker that exited between a
+					// claim and its cancellation) and try once more.
+					d.mu.Lock()
+					for _, s := range d.segs {
+						s.holders = nil
+					}
+					d.mu.Unlock()
+					spawn()
+					// A worker started here may finish (or find nothing left)
+					// right away: give in-flight completions a moment before
+					// concluding that the download cannot progress.
+					for i := 0; i < 5 && atomic.LoadInt32(&d.active) == 0; i++ {
+						time.Sleep(20 * time.Millisecond)
+						if d.complete() {
+							break
+						}
+						spawn()
+					}
+					if d.complete() {
+						continue
+					}
+				}
+				if atomic.LoadInt32(&d.active) == 0 {
 					d.mu.Lock()
 					le := d.lastErr
 					d.mu.Unlock()
