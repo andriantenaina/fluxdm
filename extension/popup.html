@@ -1,28 +1,16 @@
 <!doctype html>
-<html>
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FluxDM</title>
+    <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="popup.css" />
+    <script src="theme.js"></script>
   </head>
   <body>
-    <header>
-      <img src="icons/icon-32.png" alt="" width="22" height="22" />
-      <b>FluxDM</b>
-      <span id="status" class="status"></span>
-    </header>
-    <section>
-      <div class="h" id="videosTitle"></div>
-      <div id="list"></div>
-      <label class="quick"><input type="checkbox" id="quick" /> <span id="quickLabel"></span></label>
-    </section>
-    <section class="actions">
-      <button id="page"></button>
-      <button id="all"></button>
-    </section>
-    <footer>
-      <label><input type="checkbox" id="capture" /> <span id="captureLabel"></span></label>
-      <button id="open" class="link"></button>
-    </footer>
+    <script src="common.js"></script>
+    <script src="panel-core.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

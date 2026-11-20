@@ -1,17 +1,355 @@
 {
-  "extName": { "message": "FluxDM — Intégration navigateur" },
-  "extDesc": { "message": "Capture les téléchargements et détecte les vidéos pour les télécharger avec FluxDM (multi-connexion, HLS, yt-dlp)." },
-  "downloadLink": { "message": "Télécharger avec FluxDM" },
-  "downloadMedia": { "message": "Télécharger ce média avec FluxDM" },
-  "downloadImage": { "message": "Télécharger l'image avec FluxDM" },
-  "downloadAll": { "message": "Télécharger tous les liens avec FluxDM" },
-  "downloadPage": { "message": "Télécharger la vidéo de cette page (yt-dlp)" },
-  "downloadVideo": { "message": "Télécharger la vidéo" },
-  "noMedia": { "message": "Aucune vidéo détectée sur cette page pour l'instant. Lancez la lecture." },
-  "connected": { "message": "Connecté à FluxDM" },
-  "notConnected": { "message": "FluxDM n'est pas lancé" },
-  "openApp": { "message": "Ouvrir FluxDM" },
-  "captureOn": { "message": "Capturer les téléchargements" },
-  "videos": { "message": "Vidéos détectées" },
-  "quick": { "message": "Meilleure qualité, sans fenêtre" }
+  "extName": {
+    "message": "FluxDM — Intégration navigateur"
+  },
+  "extDesc": {
+    "message": "Capture les téléchargements et détecte les vidéos pour les télécharger avec FluxDM (multi-connexion, HLS, yt-dlp)."
+  },
+  "popupTitle": {
+    "message": "FluxDM"
+  },
+  "sidePanelTitle": {
+    "message": "FluxDM — Panneau latéral"
+  },
+  "optionsTitle": {
+    "message": "Options de FluxDM"
+  },
+  "downloadLink": {
+    "message": "Télécharger avec FluxDM"
+  },
+  "downloadMedia": {
+    "message": "Télécharger ce média avec FluxDM"
+  },
+  "downloadImage": {
+    "message": "Télécharger l'image avec FluxDM"
+  },
+  "downloadAll": {
+    "message": "Télécharger tous les liens"
+  },
+  "downloadAllHint": {
+    "message": "Choisir les fichiers à récupérer sur cette page"
+  },
+  "downloadPage": {
+    "message": "Télécharger la vidéo de cette page"
+  },
+  "downloadPageHint": {
+    "message": "Analyse de la page avec yt-dlp"
+  },
+  "openSidePanel": {
+    "message": "Ouvrir le panneau latéral"
+  },
+  "openApp": {
+    "message": "Ouvrir FluxDM"
+  },
+  "openItem": {
+    "message": "Afficher dans FluxDM"
+  },
+  "options": {
+    "message": "Options"
+  },
+  "checking": {
+    "message": "Vérification…"
+  },
+  "connected": {
+    "message": "Connecté à FluxDM"
+  },
+  "notConnected": {
+    "message": "FluxDM n'est pas lancé"
+  },
+  "launchApp": {
+    "message": "Lancer FluxDM"
+  },
+  "launching": {
+    "message": "Lancement de FluxDM…"
+  },
+  "launchFailed": {
+    "message": "FluxDM n'a pas répondu. Lancez-le depuis le menu Démarrer."
+  },
+  "launchFailedHost": {
+    "message": "Impossible de lancer FluxDM depuis le navigateur : l'hôte natif n'est pas installé."
+  },
+  "helpNotRunning": {
+    "message": "Les téléchargements repassent par le navigateur tant que FluxDM est fermé."
+  },
+  "helpHostMissing": {
+    "message": "Lancez FluxDM une fois : il installe l'hôte natif (gardez fluxdm-host à côté de fluxdm)."
+  },
+  "helpAppMissing": {
+    "message": "L'hôte natif ne trouve pas FluxDM. Réinstallez-le ou lancez-le une fois."
+  },
+  "videos": {
+    "message": "Vidéos détectées"
+  },
+  "inProgress": {
+    "message": "En cours"
+  },
+  "recent": {
+    "message": "Terminés récemment"
+  },
+  "pageActions": {
+    "message": "Cette page"
+  },
+  "noMedia": {
+    "message": "Aucune vidéo détectée sur cette page pour l'instant. Lancez la lecture."
+  },
+  "restrictedPage": {
+    "message": "Page du navigateur : rien à télécharger ici."
+  },
+  "live": {
+    "message": "DIRECT"
+  },
+  "chooseQuality": {
+    "message": "Choisir la qualité"
+  },
+  "chooseQualityShort": {
+    "message": "Choisir la qualité"
+  },
+  "chooseEllipsis": {
+    "message": "Choisir…"
+  },
+  "downloadQuality": {
+    "message": "Télécharger en $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "downloadWith": {
+    "message": "Télécharger avec FluxDM : $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "downloadVideo": {
+    "message": "Télécharger la vidéo"
+  },
+  "qualities": {
+    "message": "Qualités"
+  },
+  "hideButton": {
+    "message": "Masquer"
+  },
+  "hideOnSite": {
+    "message": "Masquer sur ce site"
+  },
+  "disableOnSite": {
+    "message": "Désactiver la capture sur ce site"
+  },
+  "enableOnSite": {
+    "message": "Réactiver la capture sur ce site"
+  },
+  "siteDisabled": {
+    "message": "Capture désactivée sur $p1$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteEnabled": {
+    "message": "Capture réactivée sur $p1$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "savedLocally": {
+    "message": "(enregistré dans le navigateur, synchronisé au prochain lancement de FluxDM)"
+  },
+  "sending": {
+    "message": "Envoi à FluxDM…"
+  },
+  "sent": {
+    "message": "Envoyé à FluxDM"
+  },
+  "sentPage": {
+    "message": "Page envoyée à FluxDM"
+  },
+  "linksSent": {
+    "message": "$p1$ liens envoyés à FluxDM",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "stQueued": {
+    "message": "En file d'attente"
+  },
+  "stPaused": {
+    "message": "En pause"
+  },
+  "stProcessing": {
+    "message": "Finalisation…"
+  },
+  "stError": {
+    "message": "Erreur"
+  },
+  "stCompleted": {
+    "message": "Terminé"
+  },
+  "pause": {
+    "message": "Pause"
+  },
+  "resume": {
+    "message": "Reprendre"
+  },
+  "cancel": {
+    "message": "Annuler"
+  },
+  "captureOn": {
+    "message": "Capturer les téléchargements"
+  },
+  "videoButton": {
+    "message": "Bouton sur les vidéos"
+  },
+  "tipConnected": {
+    "message": "connecté"
+  },
+  "tipMedia": {
+    "message": "$p1$ vidéo(s) détectée(s)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "tipDisconnected": {
+    "message": "l'application n'est pas lancée"
+  },
+  "tipCaptureOff": {
+    "message": "capture désactivée"
+  },
+  "tipCaptureOffMedia": {
+    "message": "capture désactivée · $p1$ vidéo(s) détectée(s)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "notifSentTitle": {
+    "message": "Envoyé à FluxDM"
+  },
+  "notifFailTitle": {
+    "message": "Échec de l'envoi à FluxDM"
+  },
+  "notifFallbackTitle": {
+    "message": "FluxDM injoignable : téléchargement dans le navigateur"
+  },
+  "notifFallbackBody": {
+    "message": "$p1$ — $p2$. Cliquez pour lancer FluxDM.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "errUnreachable": {
+    "message": "FluxDM injoignable"
+  },
+  "errUnsupported": {
+    "message": "Cette version de FluxDM ne gère pas cette action. Mettez FluxDM à jour."
+  },
+  "errBadHost": {
+    "message": "Adresse de site invalide"
+  },
+  "errRestricted": {
+    "message": "Impossible d'agir sur cette page du navigateur."
+  },
+  "errNoLinks": {
+    "message": "Aucun lien trouvé sur cette page."
+  },
+  "secCapture": {
+    "message": "Capture des téléchargements"
+  },
+  "secVideo": {
+    "message": "Bouton vidéo"
+  },
+  "secAppearance": {
+    "message": "Apparence et notifications"
+  },
+  "appCaptureOff": {
+    "message": "La capture est désactivée dans FluxDM."
+  },
+  "optExts": {
+    "message": "Extensions capturées"
+  },
+  "optExtsHelp": {
+    "message": "Séparées par des espaces ou des virgules, par exemple : zip exe mp4"
+  },
+  "optMinSize": {
+    "message": "Taille minimale (Ko)"
+  },
+  "optMinSizeHelp": {
+    "message": "Les fichiers plus petits restent dans le navigateur. 0 = aucune limite."
+  },
+  "optSkipSites": {
+    "message": "Sites exclus de la capture"
+  },
+  "optVideoSkipSites": {
+    "message": "Sites sans bouton vidéo"
+  },
+  "optSitesHelp": {
+    "message": "Un site par ligne, par exemple : example.com (inclut ses sous-domaines)"
+  },
+  "optTheme": {
+    "message": "Thème"
+  },
+  "themeSystem": {
+    "message": "Système"
+  },
+  "themeLight": {
+    "message": "Clair"
+  },
+  "themeDark": {
+    "message": "Sombre"
+  },
+  "optNotifications": {
+    "message": "Afficher les notifications"
+  },
+  "optOffline": {
+    "message": "FluxDM injoignable : les réglages seront enregistrés dans le navigateur"
+  },
+  "save": {
+    "message": "Enregistrer"
+  },
+  "saving": {
+    "message": "Enregistrement…"
+  },
+  "saved": {
+    "message": "Réglages enregistrés"
+  },
+  "savedLocallyLong": {
+    "message": "Enregistré dans le navigateur. FluxDM sera mis à jour à son prochain lancement."
+  },
+  "errInvalidExts": {
+    "message": "Extensions invalides : $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "errInvalidHosts": {
+    "message": "Sites invalides : $p1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "errMinSize": {
+    "message": "Entrez un nombre entier positif ou 0."
+  },
+  "errFixFields": {
+    "message": "Corrigez les champs signalés."
+  }
 }

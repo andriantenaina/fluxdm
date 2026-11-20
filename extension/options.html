@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FluxDM</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="options.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="head">
+        <img src="icons/icon-48.png" alt="" width="40" height="40" />
+        <div>
+          <h1 data-i18n="optionsTitle"></h1>
+          <p class="conn"><span class="dot wait" id="connDot"></span><span id="connText" data-i18n="checking"></span></p>
+        </div>
+      </header>
+
+      <form id="form" novalidate>
+        <fieldset class="card">
+          <legend data-i18n="secCapture"></legend>
+          <label class="switch"><input type="checkbox" role="switch" id="captureEnabled" /><span class="track" aria-hidden="true"></span><span data-i18n="captureOn"></span></label>
+          <p class="help" id="appCaptureOff" data-i18n="appCaptureOff" hidden></p>
+          <div class="field">
+            <label for="captureExts" data-i18n="optExts"></label>
+            <textarea id="captureExts" rows="3" spellcheck="false" aria-describedby="captureExtsHelp captureExtsErr"></textarea>
+            <span class="help" id="captureExtsHelp" data-i18n="optExtsHelp"></span>
+            <span class="error" id="captureExtsErr" aria-live="polite"></span>
+          </div>
+          <div class="field">
+            <label for="captureMinSize" data-i18n="optMinSize"></label>
+            <input type="number" id="captureMinSize" min="0" step="1" inputmode="numeric" aria-describedby="captureMinSizeHelp captureMinSizeErr" />
+            <span class="help" id="captureMinSizeHelp" data-i18n="optMinSizeHelp"></span>
+            <span class="error" id="captureMinSizeErr" aria-live="polite"></span>
+          </div>
+          <div class="field">
+            <label for="skipSites" data-i18n="optSkipSites"></label>
+            <textarea id="skipSites" rows="3" spellcheck="false" aria-describedby="skipSitesHelp skipSitesErr"></textarea>
+            <span class="help" id="skipSitesHelp" data-i18n="optSitesHelp"></span>
+            <span class="error" id="skipSitesErr" aria-live="polite"></span>
+          </div>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend data-i18n="secVideo"></legend>
+          <label class="switch"><input type="checkbox" role="switch" id="videoButton" /><span class="track" aria-hidden="true"></span><span data-i18n="videoButton"></span></label>
+          <div class="field">
+            <label for="videoSkipSites" data-i18n="optVideoSkipSites"></label>
+            <textarea id="videoSkipSites" rows="3" spellcheck="false" aria-describedby="videoSkipSitesHelp videoSkipSitesErr"></textarea>
+            <span class="help" id="videoSkipSitesHelp" data-i18n="optSitesHelp"></span>
+            <span class="error" id="videoSkipSitesErr" aria-live="polite"></span>
+          </div>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend data-i18n="secAppearance"></legend>
+          <div class="field">
+            <span class="lbl" id="themeLbl" data-i18n="optTheme"></span>
+            <div class="seg" role="radiogroup" aria-labelledby="themeLbl">
+              <label><input type="radio" name="theme" value="system" /><span data-i18n="themeSystem"></span></label>
+              <label><input type="radio" name="theme" value="light" /><span data-i18n="themeLight"></span></label>
+              <label><input type="radio" name="theme" value="dark" /><span data-i18n="themeDark"></span></label>
+            </div>
+          </div>
+          <label class="switch"><input type="checkbox" role="switch" id="notifications" /><span class="track" aria-hidden="true"></span><span data-i18n="optNotifications"></span></label>
+        </fieldset>
+
+        <div class="bar-actions">
+          <button type="submit" class="btn primary" id="save" data-i18n="save"></button>
+          <p class="status-line" id="saveStatus" role="status" aria-live="polite"></p>
+        </div>
+      </form>
+    </main>
+    <script src="common.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
