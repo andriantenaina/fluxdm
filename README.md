@@ -4,7 +4,10 @@ Gestionnaire de téléchargements libre (Windows 10/11, macOS 12+) avec extensio
 
 ## Fonctionnalités
 
-- **Moteur multi-connexion** (1 à 32 connexions) à segmentation dynamique : une connexion libre reprend la moitié du plus gros morceau restant. Il réduit tout seul ses connexions si le serveur les limite.
+- **Moteur multi-connexion** (1 à 32 connexions) à segmentation dynamique : toutes les connexions démarrent d'un coup, une connexion libre reprend la moitié du plus gros morceau restant. En mode automatique, il ajoute des connexions tant que la vitesse monte et en retire si le serveur les limite ; le meilleur réglage est mémorisé par site.
+- **Optimisations réseau** : cache DNS, connexions réparties sur les différentes adresses IP d'un serveur, tampons agrandis, connexions réutilisées par blocs, **miroirs** (un même fichier depuis plusieurs sources).
+- **YouTube accéléré** : yt-dlp fournit les liens, et le moteur FluxDM télécharge la vidéo et l'audio en parallèle avec plusieurs connexions.
+- **iPhone (FluxDM Remote)** : contrôle depuis Safari sur iOS, sans app ni câble : ajout de liens, signet de détection vidéo, raccourci Partager, récupération des fichiers. Voir [docs/INSTALL-iOS.md](docs/INSTALL-iOS.md).
 - **Reprise** après pause, coupure réseau, plantage ou redémarrage.
 - **Protocoles** : HTTP/HTTPS (HTTP/2 en option), FTP/FTPS, BitTorrent et liens magnet.
 - **Vidéo** :
@@ -36,6 +39,7 @@ Limite volontaire : les contenus protégés par DRM (Netflix, Disney+, etc.) ne 
 | `internal/core`, `internal/store` | Gestionnaire, files d'attente, réglages, SQLite |
 | `internal/torrent`, `internal/ftpdl`, `internal/grabber`, `internal/scheduler` | Torrent, FTP, aspirateur de site, planificateur |
 | `internal/bridge` | Serveur local appelé par l'extension |
+| `internal/remote` | FluxDM Remote : serveur réseau local pour l'iPhone (appairage QR, API, fichiers) |
 | `internal/sidecars` | Installation à la demande de yt-dlp, ffmpeg et Deno |
 | `frontend/` | Interface (Svelte 5 + Vite) |
 | `extension/` | Extension MV3 (JavaScript simple, sans compilation) |
@@ -64,9 +68,14 @@ Pour garder la compatibilité avec macOS 12, restez sur Go 1.26 : les versions s
 
 Grâce à la clé fixée dans `manifest.json`, l'identifiant de l'extension est toujours `lnbmofjmdcfihhamjdgjdhbclmhpfblk`. Si vous publiez sur un store, ajoutez l'identifiant attribué dans `bridge.ExtensionIDs`. Ne publiez jamais `extension/keys/`.
 
+## Safari sur Mac
+
+Le `.dmg` contient aussi `FluxDM Safari.app` (extension non signée). Voir [docs/SAFARI-MAC.md](docs/SAFARI-MAC.md).
+
 ## Tests
 
 ```powershell
+node --test extension/common.test.js                            # titres, formats et regroupement de l'extension
 go test ./internal/...                                          # tests unitaires et de bout en bout locaux
 $env:FLUXDM_NET='1'; go test ./internal/media -run RealHLS -v   # vrai flux HLS (réseau)
 ```

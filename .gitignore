@@ -13,3 +13,6 @@ extension/keys/
 # local
 *.log
 .DS_Store
+
+# local binaries
+/fluxdm.exe

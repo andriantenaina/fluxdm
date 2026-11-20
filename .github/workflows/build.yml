@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.0-dev' }}
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.3.0-dev' }}
 
 jobs:
   test:
@@ -25,7 +25,9 @@ jobs:
       - name: Frontend
         working-directory: frontend
         run: npm ci && npm run check && npm run build
-      - name: Go tests (engine, media, extractors...)
+      - name: Extension helpers (node --test)
+        run: node --test extension/common.test.js
+      - name: Go tests (engine, media, extractors, remote...)
         run: |
           go vet ./internal/... ./cmd/fluxdm-host ./cmd/fluxdm-cli
           go test -race ./internal/... -count=1
@@ -116,8 +118,39 @@ jobs:
           rsync -a --exclude keys extension/ $APP/Contents/Resources/extension/
           # ad-hoc signature (required on Apple Silicon); notarization needs an Apple Developer account
           codesign --force --deep --sign - $APP
-          mkdir -p dist
-          hdiutil create -volname FluxDM -srcfolder $APP -ov -format UDZO dist/FluxDM-macOS-${VERSION}.dmg
+      - name: Safari extension for Mac (unsigned, macOS 12+)
+        continue-on-error: true # bonus: never block the main macOS build
+        run: |
+          set -e
+          go run ./tools/genicons extension/icons 16 32 48 128
+          SRC=out/safari-src
+          rsync -a --exclude keys --exclude '*.test.js' extension/ $SRC/
+          # keys Safari does not understand
+          python3 - "$SRC/manifest.json" <<'EOF'
+          import json, sys
+          p = sys.argv[1]
+          m = json.load(open(p))
+          for k in ("key", "minimum_chrome_version"):
+              m.pop(k, None)
+          m["permissions"] = [x for x in m["permissions"] if x not in ("downloads", "webRequest", "webNavigation")]
+          json.dump(m, open(p, "w"), indent=2)
+          EOF
+          xcrun safari-web-extension-converter $SRC --macos-only --app-name "FluxDM Safari" \
+            --bundle-identifier com.fluxdm.safari --swift --no-open --no-prompt --copy-resources --project-location out/safari
+          PROJ=$(find out/safari -name '*.xcodeproj' -maxdepth 3 | head -1)
+          xcodebuild -project "$PROJ" -scheme "FluxDM Safari" -configuration Release \
+            -derivedDataPath out/safari-build MACOSX_DEPLOYMENT_TARGET=12.0 \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_REQUIRED=NO build
+          cp -R "out/safari-build/Build/Products/Release/FluxDM Safari.app" out/
+          codesign --force --deep --sign - "out/FluxDM Safari.app"
+      - name: DMG
+        run: |
+          set -e
+          mkdir -p out/dmg dist
+          cp -R out/FluxDM.app out/dmg/
+          [ -d "out/FluxDM Safari.app" ] && cp -R "out/FluxDM Safari.app" out/dmg/ || echo "Safari extension skipped"
+          ln -s /Applications out/dmg/Applications
+          hdiutil create -volname FluxDM -srcfolder out/dmg -ov -format UDZO dist/FluxDM-macOS-${VERSION}.dmg
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: dist/* }
 
